@@ -123,6 +123,13 @@ ifeq ($(BUILD_ENTERPRISE_READY),true)
 		docker start mattermost-openldap > /dev/null; \
 		sleep 10; \
 	fi
+	@if [ $(shell docker ps -a | grep -ci mattermost-redis) -eq 0 ]; then \
+		echo starting mattermost-redis; \
+		docker run --name mattermost-redis -p 6379:6379 -d redis > /dev/null; \
+	elif [ $(shell docker ps | grep -ci mattermost-redis) -eq 0 ]; then \
+		echo restarting mattermost-redis; \
+		docker start mattermost-redis > /dev/null; \
+	fi
 endif
 
 stop-docker:
