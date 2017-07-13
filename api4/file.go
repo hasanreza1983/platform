@@ -18,6 +18,17 @@ const (
 	FILE_TEAM_ID = "noteam"
 )
 
+var IMAGE_CONTENT_TYPES = [...]string{
+	"image/jpeg",
+	"image/png",
+	"image/bmp",
+	"image/gif",
+	"video/avi",
+	"video/mpeg",
+	"audio/mpeg3",
+	"audio/wav",
+}
+
 func InitFile() {
 	l4g.Debug(utils.T("api.file.init.debug"))
 
@@ -82,9 +93,9 @@ func getFile(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	toDownload, failConv := strconv.ParseBool(r.URL.Query().Get("download"))
-	if failConv != nil {
-		toDownload = false
+	forceDownload, convErr := strconv.ParseBool(r.URL.Query().Get("download"))
+	if convErr != nil {
+		forceDownload = false
 	}
 
 	info, err := app.GetFileInfo(c.Params.FileId)
@@ -105,22 +116,7 @@ func getFile(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	contentTypeToCheck := []string{"image/jpeg", "image/png", "image/bmp", "image/gif",
-		"video/avi", "video/mpeg", "audio/mpeg3", "audio/wav"}
-
-	contentType := http.DetectContentType(data)
-	foundContentType := false
-	for _, contentTypeFromList := range contentTypeToCheck {
-		if contentType == contentTypeFromList && toDownload == false {
-			foundContentType = true
-			break
-		}
-	}
-	if !foundContentType {
-		toDownload = true
-	}
-
-	err = writeFileResponse(info.Name, info.MimeType, data, toDownload, w, r)
+	err = writeFileResponse(info.Name, info.MimeType, data, forceDownload, w, r)
 	if err != nil {
 		c.Err = err
 		return
@@ -133,9 +129,9 @@ func getFileThumbnail(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	toDownload, failConv := strconv.ParseBool(r.URL.Query().Get("download"))
-	if failConv != nil {
-		toDownload = false
+	forceDownload, convErr := strconv.ParseBool(r.URL.Query().Get("download"))
+	if convErr != nil {
+		forceDownload = false
 	}
 
 	info, err := app.GetFileInfo(c.Params.FileId)
@@ -158,7 +154,7 @@ func getFileThumbnail(c *Context, w http.ResponseWriter, r *http.Request) {
 	if data, err := app.ReadFile(info.ThumbnailPath); err != nil {
 		c.Err = err
 		c.Err.StatusCode = http.StatusNotFound
-	} else if err := writeFileResponse(info.Name, info.MimeType, data, toDownload, w, r); err != nil {
+	} else if err := writeFileResponse(info.Name, info.MimeType, data, forceDownload, w, r); err != nil {
 		c.Err = err
 		return
 	}
@@ -205,9 +201,9 @@ func getFilePreview(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	toDownload, failConv := strconv.ParseBool(r.URL.Query().Get("download"))
-	if failConv != nil {
-		toDownload = false
+	forceDownload, convErr := strconv.ParseBool(r.URL.Query().Get("download"))
+	if convErr != nil {
+		forceDownload = false
 	}
 
 	info, err := app.GetFileInfo(c.Params.FileId)
@@ -230,7 +226,7 @@ func getFilePreview(c *Context, w http.ResponseWriter, r *http.Request) {
 	if data, err := app.ReadFile(info.PreviewPath); err != nil {
 		c.Err = err
 		c.Err.StatusCode = http.StatusNotFound
-	} else if err := writeFileResponse(info.Name, info.MimeType, data, toDownload, w, r); err != nil {
+	} else if err := writeFileResponse(info.Name, info.MimeType, data, forceDownload, w, r); err != nil {
 		c.Err = err
 		return
 	}
@@ -298,14 +294,37 @@ func getPublicFile(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func writeFileResponse(filename string, contentType string, bytes []byte, toDownload bool, w http.ResponseWriter, r *http.Request) *model.AppError {
+func writeFileResponse(filename string, contentType string, bytes []byte, forceDownload bool, w http.ResponseWriter, r *http.Request) *model.AppError {
 	w.Header().Set("Cache-Control", "max-age=2592000, private")
 	w.Header().Set("Content-Length", strconv.Itoa(len(bytes)))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	if contentType == "application/javascript" || contentType == "application/ecmascript" ||
+		contentType == "text/javaScript" || contentType == "text/ecmascript" ||
+		contentType == "application/x-javascript" || contentType == "text/html" {
+		contentType = "application/octet-stream"
+	}
 
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	} else {
 		w.Header().Del("Content-Type") // Content-Type will be set automatically by the http writer
+	}
+
+	var toDownload bool
+	if forceDownload {
+		toDownload = true
+	} else {
+		isImageType := false
+
+		for _, imageContentType := range IMAGE_CONTENT_TYPES {
+			if contentType == imageContentType {
+				isImageType = true
+				break
+			}
+		}
+
+		toDownload = !isImageType
 	}
 
 	if toDownload {
